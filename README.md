@@ -2,7 +2,7 @@
 
 Evals and guardrails for agents, using Jev-style decision models instead of an LLM judge. All the evals for a trace go out as one request that costs a few thousandths of a cent and comes back in a few hundred milliseconds, so you can run them on every trace and inside the agent loop.
 
-Works with Jev through the TypeSafe or Vercel APIs, with Kev or Laya running locally on a Mac, with Eikos on your own GPU, or with a regular chat LLM if that's all you have (slower, costs more).
+Works with Jev through the TypeSafe or Vercel APIs, with any decision model on OpenRouter (Jev, Cloudflare's Clef, Liquid's d1 and more), with Kev or Laya running locally on a Mac, with Eikos on your own GPU, or with a regular chat LLM if that's all you have (slower, costs more).
 
 ```bash
 pip install jevals
@@ -86,9 +86,10 @@ Backends resolve from the environment, in this order:
 | `KEV_BASE_URL` | Kev, self-hosted | `python -m kev.serve --run jaredpalmer/kev-4b` on a 32GB Mac |
 | `EIKOS_BASE_URL` | Eikos, self-hosted | `serve_vllm.sh` + `serve.py` from [caiovicentino1/Eikos-4B](https://huggingface.co/caiovicentino1/Eikos-4B) or [-27B](https://huggingface.co/caiovicentino1/Eikos-27B), one GPU |
 | `JEVALS_BACKEND=laya` | Laya, in-process | `pip install "jevals[laya]"`, Apple Silicon, offline |
+| `OPENROUTER_API_KEY` + `OPENROUTER_DECISION_MODEL` | a decision model on OpenRouter | e.g. `cloudflare/clef`, `typesafe/jev-1.13`, `liquid/d1`; [the list](https://openrouter.ai/models?output_modalities=decisions). Cost is what OpenRouter reports per request |
 | `OPENROUTER_API_KEY` | any chat LLM, emulated | `JEVALS_LLM_MODEL=openai/gpt-4.1-mini`; slower, costs more, no special access needed |
 
-Or pass one explicitly: `evaluate(sample, evals, backend="kev://localhost:8009")`, `backend="eikos://localhost:8000"`, `backend="llm:anthropic/claude-haiku-4.5"`, or `backend="mock"` in tests. You can swap backends without touching the evals, but re-run `jevals calibrate` when you do, since the probabilities won't line up across models.
+Or pass one explicitly: `evaluate(sample, evals, backend="kev://localhost:8009")`, `backend="eikos://localhost:8000"`, `backend="decisions:cloudflare/clef"`, `backend="llm:anthropic/claude-haiku-4.5"`, or `backend="mock"` in tests. You can swap backends without touching the evals, but re-run `jevals calibrate` when you do, since the probabilities won't line up across models.
 
 Anything that speaks the System One wire format can be a backend. Chat LLMs get emulated through a prompt that asks for probabilities. For anything else, subclass `Backend`.
 
