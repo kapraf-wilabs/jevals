@@ -36,6 +36,10 @@ class PromptDiff(BaseModel):
 class CoverageReport(BaseModel):
     uncovered: list[Rule] = []
     stale: list[Citation] = []
+    # Rules whose text was changed by hand under the old id. The id is the text's hash, so
+    # a reworded rule must get a new one, and the questions citing it must be looked at again.
+    edited: list[Rule] = []
+    edited_cited: list[Citation] = []
     prompt_diff: PromptDiff | None = None
     uncited: list[str] = []
     doubtful: list[Doubt] = []
@@ -43,7 +47,7 @@ class CoverageReport(BaseModel):
 
     def failed(self, strict: bool = False) -> bool:
         changed = self.prompt_diff is not None and bool(self.prompt_diff.added or self.prompt_diff.removed)
-        hard = bool(self.uncovered or self.stale or changed)
+        hard = bool(self.uncovered or self.stale or self.edited or changed)
         return hard or (strict and bool(self.uncited or self.doubtful))
 
     def table(self) -> str:
@@ -52,6 +56,11 @@ class CoverageReport(BaseModel):
             rows.append(f"uncovered   {r.id}  {r.text}")
         for c in self.stale:
             rows.append(f"stale       {c.question} cites {c.rule_id}, which the contract does not have")
+        for r in self.edited:
+            rows.append(f"edited      {r.id}  {r.text}  (text changed; its id is now {rule_id(r.text)})")
+            rows.extend(
+                f"              cited by {c.question}" for c in self.edited_cited if c.rule_id == r.id
+            )
         if self.prompt_diff:
             for r in self.prompt_diff.added:
                 rows.append(f"new rule    {r.id}  {r.text}  (not in the contract)")
@@ -102,6 +111,9 @@ async def acheck_coverage(
         stale=[c for c in cites if c.rule_id not in known],
         uncited=uncited,
     )
+    rep.edited = [r for r in contract.rules if r.id != rule_id(r.text)]
+    edited_ids = {r.id for r in rep.edited}
+    rep.edited_cited = [c for c in cites if c.rule_id in edited_ids]
     if prompt is not None and prompt_sha256(prompt) != contract.prompt_sha256:
         # The prompt changed. A rule is gone when its text is no longer in the prompt at all,
         # and new when the model calls a line a rule the contract neither has nor excludes.

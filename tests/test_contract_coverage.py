@@ -158,3 +158,29 @@ def test_dotted_eval_name_sends_the_real_question_text():
     mock = MockBackend(default_noul=0.9)
     check_coverage(CONTRACT, [ev("support.v2", {"q": q("Asks for the order number?", [ASK])})], backend=mock)
     assert mock.calls[0]["state"]["questions"] == {"support.v2.q": "Asks for the order number?"}
+
+
+def test_rule_text_edited_under_its_old_id_fails():
+    reworded = "Ask for the client number when the customer has not given one."
+    contract = Contract(
+        prompt_sha256="0" * 64,
+        rules=[Rule(id=ASK, text=reworded), *CONTRACT.rules[1:]],
+    )
+    evals = [ev("s", {"a": q("Asks for the order number?", [ASK]), "b": q("?", [REFUND, LANG])})]
+    rep = check_coverage(contract, evals, use_model=False)
+    assert [(r.id, r.text) for r in rep.edited] == [(ASK, reworded)]
+    assert rep.failed()
+    table = rep.table()
+    assert f"edited      {ASK}" in table and rule_id(reworded) in table and "cited by s.a" in table
+
+
+def test_case_and_punctuation_edits_keep_the_id():
+    contract = Contract(
+        prompt_sha256="0" * 64,
+        rules=[
+            Rule(id=ASK, text="ask for the ORDER number when the customer has not given one"),
+            *CONTRACT.rules[1:],
+        ],
+    )
+    rep = check_coverage(contract, [ev("s", {"a": q("?", [ASK, REFUND, LANG])})], use_model=False)
+    assert rep.edited == [] and not rep.failed()

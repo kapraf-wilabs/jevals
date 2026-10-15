@@ -182,7 +182,8 @@ def build_server() -> Any:
         strict: bool = False,
         backend: str | None = None,
     ) -> dict[str, Any]:
-        """Check evals against contract.yaml: uncovered rules, stale citations, changed prompt
+        """Check evals against contract.yaml: uncovered rules, stale citations, rules edited under
+        their old id, changed prompt
         (pass the current prompt text), and with use_model, citations a decision model doubts."""
         from .._declarative import load_evals
         from ..contract import acheck_coverage, load_contract

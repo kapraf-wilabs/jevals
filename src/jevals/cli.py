@@ -350,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     cr.add_argument("-o", "--out")
     cr.add_argument("--no-model", action="store_true", help="keep every line; no request")
     cr.set_defaults(fn=cmd_contract_rules)
-    cc = csub.add_parser("check", help="uncovered rules, stale citations, prompt changes")
+    cc = csub.add_parser("check", help="uncovered rules, stale citations, edited rules, prompt changes")
     cc.add_argument("contract")
     cc.add_argument("evals", nargs="+", help="eval files or directories")
     src = cc.add_mutually_exclusive_group()

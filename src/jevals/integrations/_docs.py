@@ -78,7 +78,7 @@ jevals contract rules prompt.md -o contract.yaml      # rules with stable ids; -
 #   questions: {{promised: {{type: noul, instructions: "Does reply promise a refund before checking the window?", covers: [r-4c9050]}}}}
 #   covers: [observed] + why: "..." for behaviour the prompt implies but doesn't state
 jevals contract check contract.yaml evals/ [--prompt prompt.md] [--strict]
-# fails on uncovered rules, stale citations, a changed prompt; --strict also on uncited / doubtful
+# fails on uncovered rules, stale citations, rules edited under their old id, a changed prompt; --strict also on uncited / doubtful
 One rule per question. Write it so true means the agent did the named thing. Check an absence as a
 question that is true when the violation happened, never "No ..." inside the question.
 
