@@ -5,6 +5,14 @@ jevals contract rules prompt.md -o contract.yaml
 jevals contract check contract.yaml evals/
 """
 
+from ._coverage import (
+    Citation,
+    CoverageReport,
+    Doubt,
+    PromptDiff,
+    acheck_coverage,
+    check_coverage,
+)
 from ._rules import (
     Contract,
     Extraction,
@@ -20,7 +28,13 @@ from ._rules import (
 )
 
 __all__ = [
+    "Citation",
     "Contract",
+    "CoverageReport",
+    "Doubt",
+    "PromptDiff",
+    "acheck_coverage",
+    "check_coverage",
     "Extraction",
     "Rule",
     "aextract_rules",
