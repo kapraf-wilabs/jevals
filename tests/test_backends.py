@@ -13,6 +13,7 @@ from jevals.backends._wire import (
     questions_to_vercel,
 )
 from jevals.backends.llm import LLMBackend
+from jevals.backends.openrouter import OpenRouterDecisionsBackend
 from jevals.backends.typesafe import TypeSafeBackend
 from jevals.backends.vercel import VercelBackend
 
@@ -231,3 +232,71 @@ async def test_mock_backend_matching():
     assert a["x.k"].probabilities == {"a": 0.5, "b": 0.5} and a["x.s"].score == 0.5
     fn = MockBackend(fn=lambda qid, q, st: True)
     assert (await fn.run({}, {"q": Noul("x")})).answers["q"].probability == 0.95
+
+
+# Recorded from POST https://openrouter.ai/api/v1/systemone with model cloudflare/clef (2026-10-14).
+OPENROUTER_DECISIONS_REPLY = {
+    "model": "cloudflare/clef",
+    "answers": {"a": {"type": "noul", "noul": 0.9916}},
+    "usage": {"input_tokens": 165, "output_tokens": 0, "cost": 0.0000396},
+    "id": "gen-dec-1791972783-1F5rdzz2XzT2w1M3s05a",
+    "provider": "Cloudflare",
+}
+
+
+@respx.mock
+async def test_openrouter_decisions_backend_roundtrip(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "ok")
+    route = respx.post("https://openrouter.ai/api/v1/systemone").mock(
+        return_value=httpx.Response(200, json=OPENROUTER_DECISIONS_REPLY)
+    )
+    be = resolve("decisions:cloudflare/clef")
+    resp = await be.run({"x": 1}, {"a": Noul("q")})
+    assert resp.answers["a"].probability == 0.9916
+    assert resp.usage.input_tokens == 165 and resp.usage.requests == 1
+    # OpenRouter prices each decision model differently and reports the charge; use it.
+    assert resp.usage.cost_usd == pytest.approx(0.0000396)
+    assert resp.usage.backend == "decisions:cloudflare/clef"
+    body = json.loads(route.calls[0].request.content)
+    assert body["model"] == "cloudflare/clef" and body["questions"]["a"]["type"] == "noul"
+    assert route.calls[0].request.headers["authorization"] == "Bearer ok"
+
+
+@respx.mock
+async def test_openrouter_decisions_backend_reports_openrouters_error(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "ok")
+    respx.post("https://openrouter.ai/api/v1/systemone").mock(
+        return_value=httpx.Response(404, json={"error": {"message": "Model blocked by guardrail"}})
+    )
+    with pytest.raises(BackendError) as ei:
+        await resolve("decisions:cloudflare/clef").run({}, {"a": Noul("q")})
+    assert ei.value.status == 404 and "guardrail" in str(ei.value) and not ei.value.retryable
+
+
+def test_openrouter_decisions_resolution(monkeypatch):
+    import jevals.backends as backends
+
+    monkeypatch.setattr(backends, "_cache", {})  # resolve() caches by spec across tests
+    for k in (
+        "JEVALS_BACKEND",
+        "TYPESAFE_API_KEY",
+        "AI_GATEWAY_API_KEY",
+        "VERCEL_OIDC_TOKEN",
+        "KEV_BASE_URL",
+        "EIKOS_BASE_URL",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_DECISION_MODEL",
+    ):
+        monkeypatch.delenv(k, raising=False)
+    with pytest.raises(BackendError, match="OPENROUTER_API_KEY"):
+        resolve("decisions:cloudflare/clef")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "ok")
+    with pytest.raises(BackendError, match="model"):
+        resolve("decisions")
+    # A key alone keeps today's meaning: a chat LLM emulating a decision model.
+    assert isinstance(resolve(), LLMBackend)
+    monkeypatch.setenv("OPENROUTER_DECISION_MODEL", "cloudflare/clef-flash")
+    be = resolve()
+    assert isinstance(be, OpenRouterDecisionsBackend) and be.model == "cloudflare/clef-flash"
+    assert resolve("decisions").model == "cloudflare/clef-flash"

@@ -2,7 +2,7 @@
 
 Resolution order when `backend` is not given:
   JEVALS_BACKEND (explicit spec) > TYPESAFE_API_KEY > AI_GATEWAY_API_KEY > KEV_BASE_URL > EIKOS_BASE_URL
-  > OPENROUTER_API_KEY / OPENAI_API_KEY
+  > OPENROUTER_API_KEY with OPENROUTER_DECISION_MODEL > OPENROUTER_API_KEY / OPENAI_API_KEY
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ def resolve(spec: str | Backend | None = None) -> Backend:
 
     Specs: "jev" | "typesafe" | "vercel" | "kev" | "kev://host:port" | "eikos" | "eikos://host:port"
            | "laya" | "laya:<hf-id>"
-           | "llm:<model>" | "openrouter:<model>" | "mock" | full http(s) URL to a /v1/systemone server
+           | "llm:<model>" | "openrouter:<model>" | "decisions:<openrouter decision model>" | "mock"
+           | full http(s) URL to a /v1/systemone server
     """
     if isinstance(spec, Backend):
         return spec
@@ -45,6 +46,8 @@ def _autodetect() -> str:
         return "kev"
     if env.get("EIKOS_BASE_URL"):
         return "eikos"
+    if env.get("OPENROUTER_API_KEY") and env.get("OPENROUTER_DECISION_MODEL"):
+        return "decisions"
     if env.get("OPENROUTER_API_KEY"):
         return "llm:" + env.get("JEVALS_LLM_MODEL", "openai/gpt-4.1-mini")
     if env.get("OPENAI_API_KEY"):
@@ -94,6 +97,10 @@ def _build(spec: str) -> Backend:
         from .llm import LLMBackend
 
         return LLMBackend(model=rest or None, provider=name if name != "llm" else None)
+    if name == "decisions":
+        from .openrouter import OpenRouterDecisionsBackend
+
+        return OpenRouterDecisionsBackend(model=rest or None)
     if name == "mock":
         return MockBackend()
     raise BackendError(f"unknown backend spec {spec!r}")
