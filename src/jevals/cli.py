@@ -194,6 +194,8 @@ def cmd_calibrate(a: argparse.Namespace) -> int:
 def _contract_prompt(a: argparse.Namespace) -> tuple[str, str]:
     from .contract import prompt_from_trace
 
+    if getattr(a, "from_trace", None) and getattr(a, "prompt", None):
+        raise ValueError("give a prompt file or --from-trace, not both")
     if getattr(a, "from_trace", None):
         return prompt_from_trace(a.from_trace, a.trace_index), f"trace:{a.from_trace}#{a.trace_index}"
     path = getattr(a, "prompt", None)
@@ -351,8 +353,9 @@ def main(argv: list[str] | None = None) -> int:
     cc = csub.add_parser("check", help="uncovered rules, stale citations, prompt changes")
     cc.add_argument("contract")
     cc.add_argument("evals", nargs="+", help="eval files or directories")
-    cc.add_argument("--prompt", help="the current prompt, to find rules that changed")
-    cc.add_argument("--from-trace", metavar="JSONL")
+    src = cc.add_mutually_exclusive_group()
+    src.add_argument("--prompt", help="the current prompt, to find rules that changed")
+    src.add_argument("--from-trace", metavar="JSONL")
     cc.add_argument("--trace-index", type=int, default=0)
     cc.add_argument("--no-model", action="store_true", help="skip the citation check; no request")
     cc.add_argument(

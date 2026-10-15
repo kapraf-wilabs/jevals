@@ -54,3 +54,44 @@ def test_example_contract_is_clean():
         "--strict",
     ]
     assert main(args) == 0
+
+
+def test_example_check_with_the_readme_command_is_clean():
+    args = [
+        "--backend",
+        "mock",
+        "contract",
+        "check",
+        "examples/contract/contract.yaml",
+        "examples/contract/evals",
+        "--prompt",
+        "examples/contract/support_prompt.md",
+        "--no-model",
+    ]
+    assert main(args) == 0
+
+
+def test_prompt_and_from_trace_together_is_a_usage_error(tmp_path, capsys):
+    import pytest
+
+    (tmp_path / "p.md").write_text(PROMPT)
+    with pytest.raises(SystemExit) as e:
+        main(
+            [
+                "--backend",
+                "mock",
+                "contract",
+                "check",
+                "c.yaml",
+                "e",
+                "--prompt",
+                "p.md",
+                "--from-trace",
+                "t.jsonl",
+            ]
+        )
+    assert e.value.code == 2
+    assert (
+        main(["--backend", "mock", "contract", "rules", str(tmp_path / "p.md"), "--from-trace", "t.jsonl"])
+        == 2
+    )

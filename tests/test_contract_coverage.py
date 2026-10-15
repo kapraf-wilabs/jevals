@@ -117,3 +117,44 @@ def test_stale_citations_are_not_sent_to_the_model_and_no_pairs_means_no_request
     mock = MockBackend()
     check_coverage(CONTRACT, [ev("s", {"a": q("?", ["r-000000"])})], backend=mock)
     assert mock.calls == []
+
+
+# --- final-review fixes ---------------------------------------------------------------------------
+
+
+def test_unchanged_prompt_never_reports_a_diff_even_after_editing_the_contract():
+    from jevals.contract import prompt_sha256
+
+    prompt = "- Role text the person removed by hand.\n" + "\n".join("- " + t for t in TEXTS)
+    edited = Contract(prompt_sha256=prompt_sha256(prompt), rules=CONTRACT.rules)  # dropped line 1
+    evals = [ev("s", {"a": q("?", [ASK, REFUND, LANG])})]
+    rep = check_coverage(edited, evals, use_model=False, prompt=prompt)
+    assert rep.prompt_diff is None and not rep.failed()
+
+
+def test_excluded_rules_are_not_new_when_the_prompt_changes():
+    excluded_text = "You are the support agent."
+    contract = Contract(
+        prompt_sha256="0" * 64,
+        rules=CONTRACT.rules,
+        excluded=[Rule(id=rule_id(excluded_text), text=excluded_text)],
+    )
+    prompt = "- " + excluded_text + "\n" + "\n".join("- " + t for t in TEXTS) + "\n- Be brief."
+    rep = check_coverage(
+        contract, [ev("s", {"a": q("?", [ASK, REFUND, LANG])})], use_model=False, prompt=prompt
+    )
+    assert [r.text for r in rep.prompt_diff.added] == ["Be brief."]
+
+
+def test_duplicate_eval_names_are_an_error():
+    import pytest
+
+    evals = [ev("same", {"q": q("FIRST?", [ASK])}), ev("same", {"q": q("SECOND?", [REFUND])})]
+    with pytest.raises(ValueError, match="same"):
+        check_coverage(CONTRACT, evals, use_model=False)
+
+
+def test_dotted_eval_name_sends_the_real_question_text():
+    mock = MockBackend(default_noul=0.9)
+    check_coverage(CONTRACT, [ev("support.v2", {"q": q("Asks for the order number?", [ASK])})], backend=mock)
+    assert mock.calls[0]["state"]["questions"] == {"support.v2.q": "Asks for the order number?"}

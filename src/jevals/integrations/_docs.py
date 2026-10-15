@@ -73,6 +73,7 @@ reduce(answers, s) -> Result(score=, passed=, detail=, evidence=). Or NoulEval /
 
 ## Contract evals (tests from the agent's system prompt)
 jevals contract rules prompt.md -o contract.yaml      # rules with stable ids; --no-model keeps every line
+# edit contract.yaml freely; move a line that isn't a rule (or a merged-away rule) under excluded:
 # write evals; each question cites the rules it tests:
 #   questions: {{promised: {{type: noul, instructions: "Does reply promise a refund before checking the window?", covers: [r-4c9050]}}}}
 #   covers: [observed] + why: "..." for behaviour the prompt implies but doesn't state

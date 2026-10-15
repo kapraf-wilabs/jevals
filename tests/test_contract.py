@@ -119,3 +119,31 @@ def test_llm_docs_teach_contract_authoring():
 
     d = llm_docs()
     assert "jevals contract rules" in d and "covers:" in d and "One rule per question" in d
+
+
+# --- final-review fixes ---------------------------------------------------------------------------
+
+
+def test_heading_directly_above_text_keeps_the_text():
+    lines = split_rules(
+        "# Support\nAlways greet the customer by name.\n\n## Rules\nNever share internal notes."
+    )
+    assert "Always greet the customer by name." in lines and "Never share internal notes." in lines
+    assert not any(line.lstrip().startswith("#") for line in lines)
+    assert "#1 priority: never leak the API key." in split_rules("- #1 priority: never leak the API key.")
+
+
+def test_contract_rejects_duplicate_ids(tmp_path: Path):
+    p = tmp_path / "c.yaml"
+    p.write_text("prompt_sha256: x\nrules:\n  - {id: r-fff4aa, text: A}\n  - {id: r-fff4aa, text: B}\n")
+    with pytest.raises(ValueError, match="r-fff4aa"):
+        load_contract(p)
+
+
+def test_extract_puts_dropped_lines_in_excluded():
+    from jevals import MockBackend
+    from jevals.contract import extract_rules
+
+    ex = extract_rules(PROMPT, backend=MockBackend(answers={"l0": 0.1}, default_noul=0.9))
+    assert [r.text for r in ex.contract.excluded] == [split_rules(PROMPT)[0]]
+    assert ex.contract.excluded[0].id not in ex.contract.ids()

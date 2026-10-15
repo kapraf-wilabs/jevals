@@ -10,7 +10,7 @@ from .._declarative import DeclarativeEval
 from .._types import Noul, Usage
 from ..backends import Backend, resolve
 from ..backends._base import run_coro_sync
-from ._rules import Contract, Rule, aextract_rules
+from ._rules import Contract, Rule, aextract_rules, prompt_sha256, rule_id, split_rules
 
 OBSERVED = "observed"
 
@@ -18,6 +18,7 @@ OBSERVED = "observed"
 class Citation(BaseModel):
     question: str  # "<eval>.<qid>"
     rule_id: str
+    instructions: str = ""
 
 
 class Doubt(BaseModel):
@@ -68,6 +69,10 @@ class CoverageReport(BaseModel):
 
 
 def _citations(evals: Sequence[DeclarativeEval]) -> tuple[list[Citation], list[str]]:
+    names = [ev.name for ev in evals]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise ValueError(f"eval names must be unique to check coverage; repeated: {dupes}")
     cites: list[Citation] = []
     uncited: list[str] = []
     for ev in evals:
@@ -75,7 +80,9 @@ def _citations(evals: Sequence[DeclarativeEval]) -> tuple[list[Citation], list[s
             name = f"{ev.name}.{qid}"
             if not ids:
                 uncited.append(name)
-            cites.extend(Citation(question=name, rule_id=i) for i in ids if i != OBSERVED)
+            ins = ev._questions[qid].instructions
+            text = ins if isinstance(ins, str) else str(ins)
+            cites.extend(Citation(question=name, rule_id=i, instructions=text) for i in ids if i != OBSERVED)
     return cites, uncited
 
 
@@ -95,12 +102,15 @@ async def acheck_coverage(
         stale=[c for c in cites if c.rule_id not in known],
         uncited=uncited,
     )
-    if prompt is not None:
+    if prompt is not None and prompt_sha256(prompt) != contract.prompt_sha256:
+        # The prompt changed. A rule is gone when its text is no longer in the prompt at all,
+        # and new when the model calls a line a rule the contract neither has nor excludes.
         ex = await aextract_rules(prompt, backend=backend, use_model=use_model)
-        now = ex.contract.ids()
-        removed = [r for r in contract.rules if r.id not in now]
+        in_prompt = {rule_id(t) for t in split_rules(prompt)}
+        known_lines = known | {r.id for r in contract.excluded}
+        removed = [r for r in contract.rules if r.id not in in_prompt]
         rep.prompt_diff = PromptDiff(
-            added=[r for r in ex.contract.rules if r.id not in known],
+            added=[r for r in ex.contract.rules if r.id not in known_lines],
             removed=removed,
             cited_removed=[c for c in cites if c.rule_id in {r.id for r in removed}],
         )
@@ -109,7 +119,7 @@ async def acheck_coverage(
     if use_model and pairs:
         state = {
             "rules": {rid: contract.get(rid).text for rid in sorted({c.rule_id for c in pairs})},
-            "questions": {q: _instructions(evals, q) for q in sorted({c.question for c in pairs})},
+            "questions": {c.question: c.instructions for c in sorted(pairs, key=lambda c: c.question)},
         }
         questions = {
             f"p{i}": Noul(
@@ -124,15 +134,6 @@ async def acheck_coverage(
             if p < 0.5:
                 rep.doubtful.append(Doubt(question=c.question, rule_id=c.rule_id, p=p))
     return rep
-
-
-def _instructions(evals: Sequence[DeclarativeEval], question: str) -> str:
-    name, _, qid = question.partition(".")
-    for ev in evals:
-        if ev.name == name and qid in ev._questions:
-            ins = ev._questions[qid].instructions
-            return ins if isinstance(ins, str) else str(ins)
-    return ""
 
 
 def check_coverage(

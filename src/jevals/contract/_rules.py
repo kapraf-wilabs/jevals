@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from .._text import split_sentences
 from .._types import Noul, Usage
@@ -21,6 +21,7 @@ from ..backends import Backend, resolve
 from ..backends._base import run_coro_sync
 
 RULE_ID = re.compile(r"^r-[0-9a-f]{6}$")
+_HEADING = re.compile(r"(?m)^[ \t]*#{1,6}[ \t].*$")
 
 
 def normalize_rule(text: str) -> str:
@@ -49,9 +50,22 @@ class Rule(BaseModel):
 
 
 class Contract(BaseModel):
+    """`rules` are what the agent must do. `excluded` are lines of the prompt that are not
+    rules (dropped by the model, or moved there by hand): `check --prompt` never reports them
+    as new."""
+
     prompt_sha256: str
     source: str | None = None
     rules: list[Rule]
+    excluded: list[Rule] = []
+
+    @model_validator(mode="after")
+    def _unique(self) -> Contract:
+        seen: set[str] = set()
+        dupes = sorted({r.id for r in [*self.rules, *self.excluded] if r.id in seen or seen.add(r.id)})
+        if dupes:
+            raise ValueError(f"rule ids must be unique; repeated: {dupes}")
+        return self
 
     def ids(self) -> set[str]:
         return {r.id for r in self.rules}
@@ -80,9 +94,9 @@ def split_rules(prompt: str) -> list[str]:
     """Candidate rules: sentences and list items, headings dropped, duplicates removed."""
     out: list[str] = []
     seen: set[str] = set()
-    for line in split_sentences(prompt):
-        if line.lstrip().startswith("#"):
-            continue
+    # Headings go before splitting: a heading and the line under it are one block to the
+    # splitter, and dropping the block afterwards would drop that line with it.
+    for line in split_sentences(_HEADING.sub("", prompt)):
         key = normalize_rule(line)
         if key and key not in seen:
             seen.add(key)
@@ -138,7 +152,8 @@ async def aextract_rules(
         usage = resp.usage
         keep = [resp.answers[f"l{i}"].probability >= 0.5 for i in range(len(lines))]
     rules = [Rule(id=rule_id(t), text=t) for t, k in zip(lines, keep) if k]
-    contract = Contract(prompt_sha256=prompt_sha256(prompt), source=source, rules=rules)
+    excluded = [Rule(id=rule_id(t), text=t) for t, k in zip(lines, keep) if not k]
+    contract = Contract(prompt_sha256=prompt_sha256(prompt), source=source, rules=rules, excluded=excluded)
     return Extraction(contract=contract, dropped=[t for t, k in zip(lines, keep) if not k], usage=usage)
 
 
