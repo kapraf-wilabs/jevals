@@ -112,3 +112,10 @@ def test_extract_an_empty_prompt_is_an_error():
 
     with pytest.raises(ValueError, match="no rules"):
         extract_rules("# Only a heading\n", backend=MockBackend(), use_model=False)
+
+
+def test_llm_docs_teach_contract_authoring():
+    from jevals.integrations._docs import llm_docs
+
+    d = llm_docs()
+    assert "jevals contract rules" in d and "covers:" in d and "One rule per question" in d
