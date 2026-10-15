@@ -10,11 +10,15 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, field_validator
 
 from .._text import split_sentences
+from .._types import Noul, Usage
+from ..backends import Backend, resolve
+from ..backends._base import run_coro_sync
 
 RULE_ID = re.compile(r"^r-[0-9a-f]{6}$")
 
@@ -97,3 +101,52 @@ def prompt_from_trace(path: str | Path, index: int = 0) -> str:
     if not prompt:
         raise ValueError(f"{path} trace {index} has no system prompt")
     return prompt
+
+
+_IS_RULE = {
+    "true": "An instruction, constraint or prohibition on what the agent does or writes.",
+    "false": "Background, a description of the agent's role, an example, or a heading.",
+}
+
+
+class Extraction(BaseModel):
+    contract: Contract
+    dropped: list[str]
+    usage: Usage
+
+
+async def aextract_rules(
+    prompt: str,
+    *,
+    backend: str | Backend | None = None,
+    use_model: bool = True,
+    source: str | None = None,
+) -> Extraction:
+    """Split `prompt` into rules. With `use_model`, one decision-model request drops the lines
+    that aren't rules (role text, background, examples); without it every line is kept."""
+    lines = split_rules(prompt)
+    if not lines:
+        raise ValueError("the prompt has no rules: nothing but headings or blank lines")
+    keep = [True] * len(lines)
+    usage = Usage()
+    if use_model:
+        questions: dict[str, Any] = {
+            f"l{i}": Noul(f"Is lines[{i}] something the agent must or must not do?", criteria=_IS_RULE)
+            for i in range(len(lines))
+        }
+        resp = await resolve(backend).run({"lines": lines}, questions)
+        usage = resp.usage
+        keep = [resp.answers[f"l{i}"].probability >= 0.5 for i in range(len(lines))]
+    rules = [Rule(id=rule_id(t), text=t) for t, k in zip(lines, keep) if k]
+    contract = Contract(prompt_sha256=prompt_sha256(prompt), source=source, rules=rules)
+    return Extraction(contract=contract, dropped=[t for t, k in zip(lines, keep) if not k], usage=usage)
+
+
+def extract_rules(
+    prompt: str,
+    *,
+    backend: str | Backend | None = None,
+    use_model: bool = True,
+    source: str | None = None,
+) -> Extraction:
+    return run_coro_sync(aextract_rules(prompt, backend=backend, use_model=use_model, source=source))

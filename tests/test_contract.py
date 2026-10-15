@@ -77,3 +77,38 @@ def test_prompt_from_trace(tmp_path: Path):
     q.write_text('{"messages": [{"role": "user", "content": "hi"}]}\n')
     with pytest.raises(ValueError, match="system prompt"):
         prompt_from_trace(q)
+
+
+def test_extract_keeps_lines_the_model_calls_rules():
+    from jevals import MockBackend
+    from jevals.contract import extract_rules
+
+    lines = split_rules(PROMPT)
+    mock = MockBackend(answers={"l0": 0.1}, default_noul=0.9)  # l0 is the role sentence
+    ex = extract_rules(PROMPT, backend=mock, source="prompt.md")
+    assert [r.text for r in ex.contract.rules] == lines[1:]
+    assert ex.dropped == [lines[0]]
+    assert ex.contract.source == "prompt.md" and len(ex.contract.prompt_sha256) == 64
+    assert len(mock.calls) == 1
+    call = mock.calls[0]
+    assert call["state"] == {"lines": lines} and set(call["questions"]) == {f"l{i}" for i in range(6)}
+    assert "lines[0]" in call["questions"]["l0"]["instructions"]
+    assert ex.usage.requests == 1
+
+
+def test_extract_without_the_model_keeps_every_line_and_makes_no_request():
+    from jevals import MockBackend
+    from jevals.contract import extract_rules
+
+    mock = MockBackend()
+    ex = extract_rules(PROMPT, backend=mock, use_model=False)
+    assert len(ex.contract.rules) == 6 and ex.dropped == [] and mock.calls == []
+    assert ex.usage.requests == 0
+
+
+def test_extract_an_empty_prompt_is_an_error():
+    from jevals import MockBackend
+    from jevals.contract import extract_rules
+
+    with pytest.raises(ValueError, match="no rules"):
+        extract_rules("# Only a heading\n", backend=MockBackend(), use_model=False)

@@ -7,7 +7,10 @@ jevals contract check contract.yaml evals/
 
 from ._rules import (
     Contract,
+    Extraction,
     Rule,
+    aextract_rules,
+    extract_rules,
     load_contract,
     normalize_rule,
     prompt_from_trace,
@@ -18,7 +21,10 @@ from ._rules import (
 
 __all__ = [
     "Contract",
+    "Extraction",
     "Rule",
+    "aextract_rules",
+    "extract_rules",
     "load_contract",
     "normalize_rule",
     "prompt_from_trace",
