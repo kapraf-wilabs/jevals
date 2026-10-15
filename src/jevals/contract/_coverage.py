@@ -7,8 +7,8 @@ from collections.abc import Sequence
 from pydantic import BaseModel, Field
 
 from .._declarative import DeclarativeEval
-from .._types import Usage
-from ..backends import Backend
+from .._types import Noul, Usage
+from ..backends import Backend, resolve
 from ..backends._base import run_coro_sync
 from ._rules import Contract, Rule, aextract_rules
 
@@ -105,7 +105,34 @@ async def acheck_coverage(
             cited_removed=[c for c in cites if c.rule_id in {r.id for r in removed}],
         )
         rep.usage = rep.usage + ex.usage
+    pairs = [c for c in cites if c.rule_id in known]
+    if use_model and pairs:
+        state = {
+            "rules": {rid: contract.get(rid).text for rid in sorted({c.rule_id for c in pairs})},
+            "questions": {q: _instructions(evals, q) for q in sorted({c.question for c in pairs})},
+        }
+        questions = {
+            f"p{i}": Noul(
+                f"Does questions[{c.question!r}] test whether the agent follows rules[{c.rule_id!r}]?"
+            )
+            for i, c in enumerate(pairs)
+        }
+        resp = await resolve(backend).run(state, questions)
+        rep.usage = rep.usage + resp.usage
+        for i, c in enumerate(pairs):
+            p = resp.answers[f"p{i}"].probability
+            if p < 0.5:
+                rep.doubtful.append(Doubt(question=c.question, rule_id=c.rule_id, p=p))
     return rep
+
+
+def _instructions(evals: Sequence[DeclarativeEval], question: str) -> str:
+    name, _, qid = question.partition(".")
+    for ev in evals:
+        if ev.name == name and qid in ev._questions:
+            ins = ev._questions[qid].instructions
+            return ins if isinstance(ins, str) else str(ins)
+    return ""
 
 
 def check_coverage(

@@ -88,3 +88,32 @@ def test_model_is_not_called_when_use_model_is_false():
     mock = MockBackend()
     check_coverage(CONTRACT, [ev("s", {"a": q("?", [ASK])})], backend=mock, use_model=False, prompt=TEXTS[0])
     assert mock.calls == []
+
+
+def test_model_checks_each_cited_pair_in_one_request_and_flags_doubtful_ones():
+    evals = [
+        ev(
+            "s",
+            {
+                "a": q("Asks for the order number?", [ASK]),
+                "b": q("Is the reply polite?", [REFUND]),
+                "c": q("Same language?", [LANG, "observed"], why="x"),
+            },
+        )
+    ]
+    mock = MockBackend(answers={"p1": 0.2}, default_noul=0.9)  # p1 = (s.b, REFUND)
+    rep = check_coverage(CONTRACT, evals, backend=mock)
+    assert [(d.question, d.rule_id, d.p) for d in rep.doubtful] == [("s.b", REFUND, 0.2)]
+    assert len(mock.calls) == 1
+    state = mock.calls[0]["state"]
+    assert set(state["rules"]) == {ASK, REFUND, LANG}
+    assert state["questions"]["s.b"] == "Is the reply polite?"
+    assert set(mock.calls[0]["questions"]) == {"p0", "p1", "p2"}  # observed is not checked
+    assert not rep.failed() and rep.failed(strict=True)
+    assert rep.usage.requests == 1
+
+
+def test_stale_citations_are_not_sent_to_the_model_and_no_pairs_means_no_request():
+    mock = MockBackend()
+    check_coverage(CONTRACT, [ev("s", {"a": q("?", ["r-000000"])})], backend=mock)
+    assert mock.calls == []
