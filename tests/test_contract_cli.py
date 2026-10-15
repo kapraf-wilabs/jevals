@@ -40,3 +40,17 @@ def test_usage_errors_exit_2(tmp_path, capsys):
         main(["--backend", "mock", "contract", "check", str(tmp_path / "missing.yaml"), str(tmp_path)]) == 2
     )
     assert "error" in capsys.readouterr().err
+
+
+def test_example_contract_is_clean():
+    args = [
+        "--backend",
+        "mock",
+        "contract",
+        "check",
+        "examples/contract/contract.yaml",
+        "examples/contract/evals",
+        "--no-model",
+        "--strict",
+    ]
+    assert main(args) == 0
